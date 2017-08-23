@@ -2,7 +2,7 @@
 ## Course 3: PA-I, Group Project 1
 ## HR Analytics Case Study 
 ## Prepared by:
-# 1. Sharadananda Mondal (DDA1710187)
+# 1. Sharadananda Mondal
 ## Submitted on: 20.08.2017
 ################################################################
 
