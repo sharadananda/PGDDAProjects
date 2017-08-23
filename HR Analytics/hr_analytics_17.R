@@ -1,5 +1,5 @@
 ################################################################
-## Course 3: PA-I, Group Project 1
+## Course 3: PA-I, Project 1
 ## HR Analytics Case Study 
 ## Prepared by:
 # 1. Sharadananda Mondal
