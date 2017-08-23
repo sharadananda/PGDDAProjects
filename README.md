@@ -1,6 +1,6 @@
 # PGDDAProjects
 This repository consists a list of data science projects done by me to fulfill the requirements of IIITB PGDDA course curriculum. 
-
+\n
 I. HR Analytics Case Study: 
         * The aim of the project was to model the probability of attrition using logistic regression
         * Technology: R, Excel 
