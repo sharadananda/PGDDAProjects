@@ -15,3 +15,9 @@ This repository consists a list of data science projects done by me to fulfill t
         .. * Prior knowledge of: Linear Regression, Statistics, Predictive Analytics
       Model evaluation metrics:
         .. * r-squared: 0.85
+### III. CC default rate prediction:
+            .. * Driver analysis & Customer default prediction
+            .. * Technology: R, Excel 
+            .. * Prior knowledge of: Logistic Regression, Statistics, Predictive Analytics, XGBoost
+          Model evaluation metrics:
+             .. * auc 0.96; TPR 89.8%
