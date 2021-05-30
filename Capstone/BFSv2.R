@@ -12,8 +12,8 @@ path <- '~/Desktop/pgdda/course/c10-CapstoneProject/intermediate/'
 setwd(path)
 
 # load data
-demo <- read.csv('../input/Demographic data.csv', na.strings = '', dec = ".")
-cibil <- read.csv('../input/Credit Bureau data.csv', na.strings = '', dec = '.')
+demo <- read.csv('A:/UPGRAD/CP/Demographic data.csv', na.strings = '', dec = ".")
+cibil <- read.csv('A:/UPGRAD/CP/Credit Bureau data.csv', na.strings = '', dec = '.')
 
 str(demo)
 str(cibil)
@@ -163,7 +163,6 @@ PlotDefaultRate(demo$duration.residence, 'Duration in current residence')
 
 ggplot(demo[which(demo$duration.residence>6),], aes(duration.residence))+
   geom_histogram(binwidth = 1)
-
 # plot all categorical variables
 cat.vars.index <- sapply(demo, function(x) class(x)=='factor')
 cat.vars <- names(demo[, cat.vars.index])
@@ -179,7 +178,11 @@ str(demo)
 dumies <- data.frame(sapply(demo[, cat.vars],
                      function(x) data.frame(model.matrix(~x-1,data =demo[,cat.vars]))[,-1]))
 demo2 <- cbind(demo[!colnames(demo) %in% cat.vars], dumies)
-
+# demo.fact <- demo[, cat.vars]
+# colnames(demo.fact)
+# dummies<- data.frame(sapply(demo.fact[,1:6], 
+#                    function(x) data.frame(model.matrix(~x-1,data =demo.fact[,1:6]))[,-1]))
+# demo1 <- cbind(demo[!colnames(demo) %in% c(colnames(demo.fact))], dummies)
 # create information value tables
 iv <- create_infotables(data=demo2[,-1], y = 'default', bins = 10, parallel = F)
 iv$Summary$IV <- round(iv$Summary$IV * 100, 2)
@@ -189,7 +192,6 @@ iv
 demo2 <- subset(demo2, select = c(vars.list$Variable, 'default'))
 str(demo2)
 boxplot(demo2[,-4], horizontal = T)
-
 ## WOE transformation ##
 # Helper function for woe transformation
 WOE_Transform <- function(x, iv) {
@@ -236,52 +238,79 @@ CalcPct(test$default)
 # Model Building
 model <- glm(default ~ ., family = "binomial", data = train) 
 summary(model)
+vif(model)
 # predictions
 test.pred.default <- predict(model, newdata = test[, -4], type = 'response')
 test.actual.default <- as.factor(ifelse(test$default==1, 'yes', 'no'))
 summary(test.pred.default)
 # Model Evaluation:
 # At cut off of 0.04
-predicted.response <- factor(ifelse(test.pred.default >= 0.04, 'yes', 'no'))
+predicted.response <- factor(ifelse(test.pred.default >= 0.039, 'yes', 'no'))
 (conf <- confusionMatrix(predicted.response, test.actual.default, positive = "yes"))
-# Accuracy: 53.89%, Sensitivity: 60.431%, Specificity: 53.597% # WOE Transformation
+# Accuracy: 53.89.32%, Sensitivity: 60.431%, Specificity: 53.597% # WOE Transformation
+
+####################################
+### KS -statistic - Test Data ###
+library(ROCR)
+
+test_cutoff_default <-
+  ifelse(predicted.response == "yes", 1, 0)
+test_actual_default <-
+  ifelse(test.actual.default == "yes", 1, 0)
+
+#on testing  data
+pred_object_test <-
+  prediction(test_cutoff_default, test_actual_default)
+
+performance_measures_test <-
+  performance(pred_object_test, "tpr", "fpr") # checking true positive, false positives
+
+ks_table_test <- attr(performance_measures_test, "y.values")[[1]] -
+  (attr(performance_measures_test, "x.values")[[1]])
+
+max(ks_table_test)
+
+
+#ROC Curve (tpr vs fpr)
+
+plot(performance_measures_test, col ='red')
+abline(a=0, b=1)
+
+
+#Area under Roc curve
+auc<- performance(pred_object_test,"auc")
+AUC <- auc@y.values[[1]]
+AUC
+
+# GINI INDEX
+gini <- 2*AUC - 1
+gini
 
 # Helper function to calculate accuracy matrix for a specific cut off value
-CalcEvalMatrix <- function(x, y, z) {
+CalcEvalMatrix <- function(x) {
   # Returns sensitiviy, specificity, accuracy of the model at various cut offs as a matrix
   # Args:
   #   x: cut off value
-  #   y: predicted label prob. from test data
-  #   z: actual label from test data
   # Returns:
   #   matrix of accuracy, sensitivity, specificity values 
-  
-  predicted.response <- as.factor(ifelse(y >= x, "yes", "no"))
-  conf <- confusionMatrix(predicted.response, z, positive = "yes")
+  predicted.response <- as.factor(ifelse(test.pred.default >= x, "yes", "no"))
+  conf <- confusionMatrix(predicted.response, test.actual.default, positive = "yes")
   acc <- conf$overall[1]
   sens <- conf$byClass[1]
   spec <- conf$byClass[2]
   eval.matrix <- t(as.matrix(c(sens, spec, acc))) 
   colnames(eval.matrix) <- c("sensitivity", "specificity", "accuracy")
-  
   return(eval.matrix)
 }
 
 # Helper function to get optimum accuracy
-GetOptimumAcc <- function(x, y){
-  # This function identifies the optimum cut off value
-  # Args:
-  #   x: predicted label prob. from test data
-  #   y: actual label from test data
-  # Returns:
-  #   a list of optimized confusion matrix & final cut off value
-  
+GetOptimumAcc <- function(){
   ## We loop through cutoffs from 0.01 to 0.99 for optimal value
   # initiating cut off values from 0.01 to 0.99 for creating 100x4 matrix
   cutoff.vals <- seq(0.01, 0.99, length.out = 100)
   model.eval.matrix <- matrix(0, nrow = 100, ncol = 3)
   for(i in 1:100){
-    model.eval.matrix[i, ] <- CalcEvalMatrix(cutoff.vals[i], x, y)
+    model.eval.matrix[i, ] <- CalcEvalMatrix(cutoff.vals[i])
   }
   # plotting cut off values
   plot(cutoff.vals, model.eval.matrix[, 1], xlab="Cutoff", ylab="Value", 
@@ -296,15 +325,22 @@ GetOptimumAcc <- function(x, y){
   d <- sort(abs(model.eval.matrix[,1]-model.eval.matrix[,2]))[1:5] # sensitivity-specificity
   # cut off value for final model
   cutoff <- cutoff.vals[which(abs(model.eval.matrix[,1]-model.eval.matrix[,2])<= d[1])] 
-  predicted.response <- factor(ifelse(x >= cutoff, "yes", "no"))
+  predicted.response <- factor(ifelse(test.pred.default >= cutoff, "yes", "no"))
   
-  conf.final <- confusionMatrix(predicted.response, y, positive = "yes")
-  
-  return(list(opt.cmttx=conf.final, opt.cutoff = cutoff))
+  conf.final <- confusionMatrix(predicted.response, test.actual.default, positive = "yes")
+  # acc <- conf.final$overall[1]  
+  # sens <- conf.final$byClass[1] 
+  # spec <- conf.final$byClass[2] 
+  # 
+  # acc.list <- list()
+  # acc.list$acc <- acc; acc.list$sens <- sens; acc.list$spec <- spec; 
+  # acc.list$conf.mtrx <- conf.final
+  # return(acc.list)
+  return(conf.final)
+  #return(cutoff)
 } 
-# optimised evaluation matrix
-(opt.vals <- GetOptimumAcc(x=test.pred.default, y=test.actual.default))
-# Accuracy: 53.23%, Sensitivity: 61.111%, Specificity: 52.882% # WOE Transformation optimised
+
+(opt.conf.matrix <- GetOptimumAcc())
 
 # ---------------------------------------------------------------------#
 ## Model Building: Combined data--> demographic & credit bureau data ##
@@ -314,15 +350,6 @@ length(dplyr::setdiff(demo$application.id, cibil$application.id)) # 0
 # this implies all application ids in two data sets are common, 
 # merging the two data sets by application.id and default
 credx <- merge(demo, cibil, by = c('application.id', 'default'))
-#credx <- merge(demo, cibil, by = 'application.id')
-
-# Adding business rule that applicants having 90 days DPD in past 12 months are as good as a defaulter
-table(credx[which(credx$DPD90.12m>=1),]$default)
-# 0       1 
-# 17887  1436 
-credx[which(credx$DPD90.12m>=1),]$default <- 1
-credx <- credx[, - which(names(credx)=='DPD90.12m')] # remove DPD90.12m to ensure model independece on this static feature
-
 # missing values
 sort(sapply(credx, function(x) sum(is.na(x))), decreasing = T)
 (missing.perc <- sort(sapply(credx, function(x) sum(is.na(x))/nrow(credx) * 100), decreasing = T))
@@ -351,7 +378,6 @@ iv
 credx_woe <- subset(credx2, select = c(vars.list$Variable, 'default'))
 str(credx_woe)
 credx_woe <- WOE_Transform(credx_woe, iv)
-
 # --------------------------------------#
 ## Data Modeling: Lasso Regression ##
 # --------------------------------------#
@@ -369,14 +395,14 @@ y.test <- y[ntest]
 cv.out <- cv.glmnet(x[ntrain,],y[ntrain],alpha=1)
 plot(cv.out)
 # Optimal lamda store it into "minlamda_lasso" object
-(minlamda_lasso <-cv.out$lambda.min) # 0.002607546 0.0004037206 0.0005894762 0.00153329
+(minlamda_lasso <-cv.out$lambda.min) # 0.002607546 0.0004037206
 
 lasso.mod <- glmnet(x[ntrain,],y[ntrain],alpha=1,lambda = minlamda_lasso)
 lasso.pred <- predict(lasso.mod, s= minlamda_lasso, newx=x[ntest,])
 
 # MSE 
-mean((lasso.pred-y.test)^2) # 0.03971291 0.03194379 0.0579637
-# All the coefficents from the model at minimal lamda
+mean((lasso.pred-y.test)^2) # 0.03971291
+# All the coefficents from the model at optimal lamda, s=403.4
 (lasso.coef <- predict(lasso.mod,type="coefficients",s=minlamda_lasso))
 
 # Non zero coefficients in final model
@@ -387,41 +413,137 @@ names(drivers)[[1]] <- 'lasso.coeff'
 #lasso.coef[lasso.coef!=0]
 drivers[which(drivers$lasso.coeff!=0),][-1,] # driver variables
 #     lasso.coeff       driver.var
-# 2  0.040087612           DPD30.6m
-# 3  0.008626311           DPD60.6m
-# 4  0.012659121          DPD60.12m
-# 5  0.002592696          DPD30.12m
-# 6  0.029890585     cc.utilization
-# 7  0.008153529         trades.12m
-# 9  0.007179111      inquiries.12m
-# 10 0.005869477    total.no.trades
-# 11 0.001124064       outs.balance
-# 15 0.359717327           DPD90.6m
-# 16 0.013652563 duration.residence
-# 17 0.003629720             income
-# 18 0.010153429   duration.company
-# 19 0.001416536          home.loan
-
+# 2   0.014537119   cc.utilization
+# 3   0.004097623       trades.12m
+# 5   0.007800338    inquiries.12m
+# 6   0.002885548     outs.balance
+# 7   0.016620851         DPD30.6m
+# 10  0.007580654        DPD90.12m
+# 12  0.001555152     inquiries.6m
+# 13  0.006746015        DPD30.12m
+# 16 -0.007672748         DPD90.6m
+# 18  0.006848676           income
+# 19  0.007286223 duration.company
 test.pred.default <- lasso.pred[,1]
-test.pred.default <- ifelse(test.pred.default>=1, 0.999999999, ifelse(test.pred.default<=0, 0.0000001, test.pred.default))
 test.actual.default <- as.factor(ifelse(y[ntest]==1, 'yes', 'no'))
 summary(test.pred.default)
 # Model Evaluation:
-# At cut off of 0.3
-predicted.response <- factor(ifelse(test.pred.default >= 0.3, 'yes', 'no'))
+# At cut off of 0.04
+predicted.response <- factor(ifelse(test.pred.default >= 0.04, 'yes', 'no'))
 (conf <- confusionMatrix(predicted.response, test.actual.default, positive = "yes"))
-#             Reference
-# Prediction  no   yes
-#        no  13855  1023
-#       yes   676  5196
-# Accuracy : 0.9181 0.7735  Sensitivity : 0.8355 0.70127 Specificity : 0.9535 0.77785
-(opt.vals <- GetOptimumAcc(x=test.pred.default, y=test.actual.default))
+# Accuracy : 0.5416 Sensitivity : 0.73913 Specificity : 0.53295 
+(opt.conf.matrix <- GetOptimumAcc())
 # Optimum accuracy values
-#             Reference
-# Prediction  no   yes
-#        no  12970   608
-#       yes   1561  5611
-# Accuracy : 0.8955 0.7079 Sensitivity : 0.9022 0.76586  Specificity : 0.8926 0.70439 
+# Accuracy : 0.6368 Sensitivity : 0.61785 Specificity : 0.63760 
+### KS -statistic - Test Data ###
+library(ROCR)
+
+test_cutoff_default <-
+  ifelse(predicted.response == "yes", 1, 0)
+test_actual_default <-
+  ifelse(test.actual.default == "yes", 1, 0)
+
+#on testing  data
+pred_object_test <-
+  prediction(test_cutoff_default, test_actual_default)
+
+performance_measures_test <-
+  performance(pred_object_test, "tpr", "fpr") # checking true positive, false positives
+
+ks_table_test <- attr(performance_measures_test, "y.values")[[1]] -
+  (attr(performance_measures_test, "x.values")[[1]])
+
+max(ks_table_test)
+
+
+#ROC Curve (tpr vs fpr)
+plot(performance_measures_test, col ='red')
+abline(a=0, b=1)
+
+
+#Area under Roc curve
+auc<- performance(pred_object_test,"auc")
+AUC <- auc@y.values[[1]]
+AUC
+
+# GINI INDEX
+gini <- 2*AUC - 1
+gini
+
+
+
+app.scorecard <- data.frame(p.good=test.pred.default, 
+                            odds.good = test.pred.default/(1-test.pred.default),
+                            ln.odds = log(test.pred.default/(1-test.pred.default)))
+app.scorecard$score <- round(250.26 + (-61.8* app.scorecard$ln.odds))
+boxplot(app.scorecard$score, horizontal = T)
+summary(app.scorecard$score)
+
+# --------------------------------------#
+## Data Modeling: Random Forest ##
+# --------------------------------------#
+library(randomForest)
+set.seed(123)
+
+train <- credx[ntrain, ]
+test <- credx[-ntrain, ]
+# Adding business rule that applicants having 90 days DPD in past 12 months are as good as a defaulter
+train$default <- ifelse(train$DPD90.12m>=1, 1, train$default)
+test$default <- ifelse(test$DPD90.12m>=1, 1, test$default)
+
+CalcPct(credx$default)
+CalcPct(train$default)
+CalcPct(test$default)
+
+train$default <- as.factor(ifelse(train$default==1, 'yes', 'no'))
+test$default <- as.factor(ifelse(test$default==1, 'yes', 'no'))
+
+system.time(rf.model <- randomForest(default ~ ., data = train, ntree = 1000, nodesize = 10))
+
+rf.predict <- predict(rf.model, test[,-2])
+confusionMatrix(test$default, rf.predict)
+varImpPlot(rf.model)
+# Accuracy: 97.89%; Sensitivity: 97.07%; Specificity: 100%
+#               Reference
+# Prediction    no   yes
+#       no  14531     0
+#       yes   438  5781
+
+
+### KS -statistic - Test Data ###
+library(ROCR)
+
+test_cutoff_default <-
+  ifelse(rf.predict == "yes", 1, 0)
+test_actual_default <-
+  ifelse(test$default == "yes", 1, 0)
+
+#on testing  data
+pred_object_test <-
+  prediction(test_cutoff_default, test_actual_default)
+
+performance_measures_test <-
+  performance(pred_object_test, "tpr", "fpr") # checking true positive, false positives
+
+ks_table_test <- attr(performance_measures_test, "y.values")[[1]] -
+  (attr(performance_measures_test, "x.values")[[1]])
+
+max(ks_table_test)
+
+
+#ROC Curve (tpr vs fpr)
+plot(performance_measures_test, col ='red')
+abline(a=0, b=1)
+
+
+#Area under Roc curve
+auc<- performance(pred_object_test,"auc")
+AUC <- auc@y.values[[1]]
+AUC
+
+# GINI INDEX
+gini <- 2*AUC - 1
+gini
 
 # --------------------------------------#
 ## Data Modeling: XGBoost Model ##
@@ -430,16 +552,26 @@ library(xgboost)
 library(Matrix)
 
 set.seed(123)
-
+# ntrain <- sample.split(credx_woe$default, SplitRatio = 0.60)
+# 
+# train <- credx_woe[ntrain, ]
+# testcv <- credx_woe[!ntrain, ]
 ntrain <- sample.split(credx2$default, SplitRatio = 0.60)
 
 train <- credx2[ntrain, ]
 testcv <- credx2[!ntrain, ]
 
+# Adding business rule that applicants having 90 days DPD in past 12 months are as good as a defaulter
+train$default[which(train$DPD90.12m>=1)] <- 1
+testcv$default[which(testcv$DPD90.12m>=1)] <- 1
+
 ntest <- sample.split(testcv$default, SplitRatio = 0.5)
 
 test <- testcv[ntest, ]
 cv <- testcv[!ntest, ]
+
+# train <- credx_woe[ntrain, ]
+# test <- credx_woe[-ntrain, ]
 
 CalcPct(credx$default)
 CalcPct(train$default)
@@ -447,20 +579,23 @@ CalcPct(test$default)
 CalcPct(cv$default)
 
 # convert data frames as matrix#
-train.mtrx <- Matrix(as.matrix(train), sparse = TRUE)
-test.mtrx <- Matrix(as.matrix(test), sparse = TRUE)
+train <- Matrix(as.matrix(train), sparse = TRUE)
+test <- Matrix(as.matrix(test), sparse = TRUE)
 cv <- Matrix(as.matrix(cv), sparse = TRUE)
 
 # Create XGB Matrices
-train.xgb <- xgb.DMatrix(data = train.mtrx[,-2], label = train.mtrx[,2])
-test.xgb <- xgb.DMatrix(data = test.mtrx[,-2], label = test.mtrx[,2])
+# train.xgb <- xgb.DMatrix(data = train[,-19], label = train[,19])
+# test.xgb <- xgb.DMatrix(data = test[,-19], label = test[,19])
+# cv.xgb <- xgb.DMatrix(data = cv[,-19], label = cv[,19])
+train.xgb <- xgb.DMatrix(data = train[,-2], label = train[,2])
+test.xgb <- xgb.DMatrix(data = test[,-2], label = test[,2])
 cv.xgb <- xgb.DMatrix(data = cv[,-2], label = cv[,2])
 
 # watchlist
 watchlist <- list(train  = train.xgb, cv = cv.xgb)
 
 # set parameters:
-params <- list (
+parameters <- list(
   # General Parameters
   booster            = "gbtree",          
   silent             = 0,                 
@@ -479,9 +614,9 @@ params <- list (
   eval_metric        = "auc",
   seed               = 123               
 )
-
 ## Model training
-xgb.model <- xgb.train(params, train.xgb, nrounds = 25, watchlist)
+# Original
+xgb.model <- xgb.train(parameters, train.xgb, nrounds = 25, watchlist)
 #Plot:
 library(reshape2)
 library(pROC)
@@ -491,140 +626,27 @@ ggplot(data=melted, aes(x=iter, y=value, group=variable, color = variable)) + ge
 # Original
 xgb.predict <- predict(xgb.model, test.xgb)
 summary(xgb.predict)
-
+#roc <- roc(test[,19], xgb.predict)
 roc <- roc(test[,2], xgb.predict)
-xgb.predictboolean <- ifelse(xgb.predict >= 0.05,1,0)
-
-xgb.cm <- confusionMatrix(xgb.predictboolean, test.mtrx[,2])
+xgb.predictboolean <- ifelse(xgb.predict >= 0.04,1,0)
+#xgb.cm <- confusionMatrix(Matrix(xgb.predictboolean), test[,19])
+xgb.cm <- confusionMatrix(xgb.predictboolean, test[,2])
 xgb.cm$table
 #             Reference
 # Prediction    0    1
-#           0 7103  176
-#           1 2574 3980
-print(paste("AUC of XGBoost is:", roc$auc)) # 0.96
-print(paste("F1 of XGBoost is:", xgb.cm$byClass["F1"])) # 0.83
+#           0 7502  196    7412 166
+#           1 5746  388    2298 3956
+print(paste("AUC of XGBoost is:", roc$auc)) #0.65369830959235
+print(paste("F1 of XGBoost is:", xgb.cm$byClass["F1"])) # 0.716318151437029
 xgb.cm$byClass
 
 test.pred.default <- xgb.predict
-test.actual.default <- as.factor(ifelse(test.mtrx[,2]==1, 'yes', 'no'))
+#test.actual.default <- as.factor(ifelse(test[,19]==1, 'yes', 'no'))
+test.actual.default <- as.factor(ifelse(test[,2]==1, 'yes', 'no'))
 summary(test.pred.default)
-(opt.vals.xgb <- GetOptimumAcc(x=test.pred.default, y=test.actual.default))
+predicted.response <- factor(ifelse(test.pred.default >= 0.3, 'yes', 'no'))
+GetOptimumAcc()
 #             Reference
 # Prediction   no  yes
-        # no  8673  423
-        # yes 1004 3733
-# $opt.cutoff
-# [1] 0.2178788
-predicted.response <- factor(ifelse(test.pred.default >= opt.vals.xgb$opt.cutoff, "yes", "no"))
-
-# ----------------------------------------------- #
- ## Lift & Gain Chart Plots ##
-# ----------------------------------------------- #
-## Created predictions data frame for analysis
-model.df <- data.frame(prospectID = test$application.id,
-                       actual.response = test.actual.default,
-                       predicted.response = predicted.response,
-                       predicted.probability = xgb.predict,
-                       cc.utilization = test$cc.utilization)
-
-# helper function to calculate gains
-CalcGain <- function(labels , predicted.probability, groups=10) {
-  if(is.factor(labels)) labels  <- as.integer(as.character(labels ))
-  if(is.factor(predicted.probability)) predicted.probability <- as.integer(as.character(predicted.probability))
-  helper = data.frame(cbind(labels , predicted.probability))
-  helper[,"Bucket"] = ntile(-helper[,"predicted.probability"], groups)
-  gaintable = helper %>% group_by(Bucket)  %>%
-    summarise_at(vars(labels ), funs(Total = n(),
-                                     Default=sum(., na.rm = TRUE))) %>%
-    mutate(CumDefault = cumsum(Default),
-           Gain=CumDefault/sum(Default)*100,
-           Cumlift=Gain/(Bucket*(100/groups)))
-  return(gaintable)
-}
-
-# Create a Table of cumulative gain and lift 
-model.df$response <- as.factor(ifelse(model.df$actual.response=="yes",1,0))
-LG <- CalcGain(model.df$response, model.df$predicted.probability, groups = 10)
-# Gain Chart 
-plot(LG$Bucket,LG$Gain,col="red",type="l",main="Gain Chart",
-     xlab="decile",ylab = "default rate")
-# Lift Chart 
-plot(LG$Bucket,LG$Cumlift,col="red",type="l",main="Lift Chart",
-     xlab="decile",ylab = "lift")
-
-View(LG)
-write.csv(LG, 'lift_gain.csv', row.names = F)
-# --------------------------------------#
-# Application Scorecard: Calculations 
-# --------------------------------------#
-# We have the following two simultaneous equations -->
-# 1> Score = Offset + Factor * ln(odds) -- (1)
-# 2> Score + pdo = Offset + Factor * ln(2 * odds) -- (2)
-# By solving (1) & (2), Factor = pdo / ln(2)
-# & Offset = Score - Factor * ln (odds)
-# In our case the requirement is 10:1 odds at 400 points and the odds double at every 20 points,
-# So, pdo = 20 & Factor = 20/ln(2) = 28.8539; Offset = 400 - 28.8539 * ln (10) = 333.5614
-# Substituting these values in (1) we get, 
-# Score = 333.5614 + 28.8539 * ln(odds) --- (A)
-# --------------------------------------#
-app.scorecard <- data.frame(p.good=test.pred.default, 
-                            odds.good = test.pred.default/(1-test.pred.default),
-                            ln.odds = log(test.pred.default/(1-test.pred.default)))
-app.scorecard$score <- round(333.5614 + (28.8539 * app.scorecard$ln.odds))
-boxplot(app.scorecard$score, horizontal = T)
-summary(app.scorecard$score) # 181--> 565
-
-# -----------------------------------------------------------------#
- # Missed Business Calculation: using rejected application list #
-# -----------------------------------------------------------------#
-# check for application ids in rejected demo data and credit bureau data sets which are not common
-length(dplyr::setdiff(rejected.pop$application.id, cibil$application.id)) # 0
-# merging the two data sets by application.id and default
-valid.dat <- merge(rejected.pop, cibil, by = c('application.id', 'default'))
-# missing values
-sort(sapply(valid.dat, function(x) sum(is.na(x))), decreasing = T)
-# since these are rejected applicants by default they have been tagged as defaulters
-valid.dat$default <- 1
-# we omit 35-36 missing values
-valid.dat <- na.omit(valid.dat)
-
-summary(sapply(valid.dat, unique)) # clearly home.loan & auto.loan are categorical variables
-valid.dat$home.loan <- as.factor(valid.dat$home.loan)
-valid.dat$auto.loan <- as.factor(valid.dat$auto.loan)
-valid.dat$dependents <- as.factor(valid.dat$dependents)
-
-cat.vars.index3 <- sapply(valid.dat, function(x) class(x)=='factor')
-cat.vars3 <- names(valid.dat[, cat.vars.index3])
-dummies3<- data.frame(sapply(valid.dat[,cat.vars3], 
-                             function(x) data.frame(model.matrix(~x-1, data =valid.dat[,cat.vars3]))[,-1]))
-valid.dat2 <- cbind(valid.dat[!colnames(valid.dat) %in% cat.vars3], dummies3)
-
-vtest <- Matrix(as.matrix(valid.dat2), sparse = TRUE)
-vtest.xgb <- xgb.DMatrix(data = vtest[,-2], label = vtest[,2])
-
-# predict
-vtest.xgb.predict <- predict(xgb.model, vtest.xgb)
-summary(vtest.xgb.predict)
-boxplot(vtest.xgb.predict, horizontal = T)
-
-vtest.pred <- ifelse(vtest.xgb.predict > 0.5, 1, 0)
-table(vtest.pred)
-# vtest.pred
-# 0    1 
-# 169 1219 
-valid.dat2$predicted.defaults <- vtest.pred
-sum(valid.dat2[which(valid.dat2$predicted.defaults==0),]$cc.utilization)
-# [1] 8,393,000 # missed cc.utilization
-sum(credx$cc.utilization) # 2,008,446,000 # total cc utilization
-# Assumption: avg credit line - Rs. 1Lac/customer; avg. cc interest rate - 15% per year; 
-# cc.utilization in 1000' Rs / customer.
-# Using his model could have generated additional business of around Rs. 8,393,000 * .15 -> Rs. 1,258,950
-# This accounts for about 0.04% of total earnings from cc interest
-
-# -----------------------------------------------------------------***-----------------------------------------------------------------#
-# -----------------------------------------------------------#
-# ------------------------------#
-# REF:
-# 1. https://www.kaggle.com/bonovandoo/fraud-detection-with-smote-and-xgboost-in-r 
-# 2. https://www.hackerearth.com/practice/machine-learning/machine-learning-algorithms/beginners-tutorial-on-xgboost-parameter-tuning-r/tutorial/
-# 
+        # no  7451  195 9089 247
+        # yes 5797  389 621  3875
