@@ -21,3 +21,14 @@ This repository consists a list of data science projects done by me to fulfill t
             .. * Prior knowledge of: Logistic Regression, Statistics, Predictive Analytics, XGBoost
           Model evaluation metrics:
              .. * auc 0.96; TPR 89.8%
+
+### IV. Capstone Project on CC Default Rate prediction:
+            .. * Driver analysis & Credit Card default prediction
+            .. * Technology: R, Excel 
+            .. * Prior knowledge of: Lasso Regression, Statistics, Predictive Analytics, XGBoost
+          Model evaluation metrics:
+             .. * auc 0.96; 
+             .. * driver variables:
+             ..    ** CC Utilization
+             ..    ** Trades in last 12 months
+             ..    ** Enquiries in last 12 months etc.
